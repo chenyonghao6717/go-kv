@@ -7,17 +7,19 @@ import (
 
 /*
 The B+tree structure of LSM-tree.
+Treat nodes of BTrees as binary to simplify loads and dumps with disks.
+Assign 4 KB space for each node.
 
 An internal node layout:
-|    header    |          data           |
-| type | count | child_pointers | unused |
-|  2B  |  2B   |   count * 8B   |  ...   |
+|             header            |          data           |
+| type | count | size | padding | child_pointers | unused |
+|  2B  |  2B   |  2B  |   2B    |   count * 8B   |  ...   |
 
 A leaf node layout:
-|    header    |  metadata   |      data        |
-| type | count | kv_offsets  | kv_data | unused |
-|  2B  |  2B   | count * 2B  |   ...   |  ...   |
-where each kv_offset is the index(relative to the beginning of the data part) of the first byte of a KV pair.
+|             header            |               data             |
+| type | count | size | padding | kv_offsets  | kv_data | unused |
+|  2B  |  2B   |  2B  |   2B    | count * 2B  |   ...   |  ...   |
+where each kv_offset is the index(relative to the beginning of the kv_data part) of the first byte of a KV pair.
 
 A KV pair layout:
 | key_len | val_len | key | val |
@@ -32,7 +34,6 @@ type BTree struct {
 	del func(uint64)
 }
 
-// treat nodes of BTrees as binary to simplify loads and dumps with disks
 type BTreeNode []byte
 
 type BTreeNodeType byte
@@ -55,86 +56,123 @@ func getTypeLiteral(type_ BTreeNodeType) string {
 }
 
 const (
-	typeOffset  = 0
-	typeLen     = 2
-	countOffset = 2
-	countLen    = 4
+	headerOffset = 0
+	headerLen    = 8
+	typeOffset   = 0
+	typeLen      = 2
+	countOffset  = 4
+	countLen     = 2
+	sizeOffset   = 6
+	sizeLen      = 2
 )
 
-func (node BTreeNode) getTypeSlice() []byte {
-	return node[typeOffset:][:typeLen]
+func getSlice(slice []byte, offset uint16, len uint16) []byte {
+	return slice[offset : offset+len]
 }
 
 func (node BTreeNode) getType() BTreeNodeType {
-	return BTreeNodeType(binary.LittleEndian.Uint16(node.getTypeSlice()))
+	return BTreeNodeType(binary.LittleEndian.Uint16(getSlice(node, typeOffset, typeLen)))
 }
 
 func (node BTreeNode) setType(type_ BTreeNodeType) {
-	binary.LittleEndian.PutUint16(node.getTypeSlice(), uint16(type_))
-}
-
-func (node BTreeNode) getCountSlice() []byte {
-	return node[countOffset:][:countLen]
+	binary.LittleEndian.PutUint16(getSlice(node, typeOffset, typeLen), uint16(type_))
 }
 
 func (node BTreeNode) getCount() uint16 {
-	return binary.LittleEndian.Uint16(node.getCountSlice())
+	return binary.LittleEndian.Uint16(getSlice(node, countOffset, countLen))
 }
 
 func (node BTreeNode) setCount(count uint16) {
-	binary.LittleEndian.PutUint16(node.getCountSlice(), count)
+	binary.LittleEndian.PutUint16(getSlice(node, countOffset, countLen), count)
+}
+
+func (node BTreeNode) getSize() uint16 {
+	return binary.LittleEndian.Uint16(getSlice(node, sizeOffset, sizeLen))
+}
+
+func (node BTreeNode) setSize(size uint16) {
+	binary.LittleEndian.PutUint16(getSlice(node, sizeOffset, sizeLen), size)
 }
 
 const (
-	dataStart       = 4
-	childPointerLen = 8
+	panicTypeMismatchMsg = "mismatch between type %s and type %s"
+	panicOutOfBoundMsg   = "index %d out of bound %d"
 )
 
-const (
-	metadataOffset = 4
-	// within a KV pair
-	kvOffsetLen  = 2
-	kvKeyLen     = 2
-	kvValueLen   = 2
-	kvDataOffset = 4
-)
+func panicOutOfBound(idx uint16, bound uint16) {
+	panic(fmt.Sprintf(panicOutOfBoundMsg, idx, bound))
+}
 
-const (
-	panicTypeMistMatch = "mismatch between type %s and type %s"
-	panicOutOfBound    = "index %d out of bound %d"
-)
+func panicTypeMismatch(type1 BTreeNodeType, type2 BTreeNodeType) {
+	panic(fmt.Sprintf(panicTypeMismatchMsg, getTypeLiteral(type1), getTypeLiteral(type2)))
+}
 
 func (node BTreeNode) checkType(type_ BTreeNodeType) {
 	if nodeType := node.getType(); nodeType != type_ {
-		panic(fmt.Sprintf(panicTypeMistMatch, getTypeLiteral(nodeType), getTypeLiteral(type_)))
+		panicTypeMismatch(type_, node.getType())
 	}
 }
 
 func (node BTreeNode) checkIdx(idx uint16) {
 	if count := node.getCount(); idx >= count {
-		panic(fmt.Sprintf(panicOutOfBound, idx, count))
+		panicOutOfBound(idx, count)
 	}
 }
 
-func (node BTreeNode) getChildPointer(idx uint16) uint64 {
+const (
+	dataOffset  = 8
+	childPtrLen = 8
+	// within the data part
+	kvOffsetOffset = 0
+	kvOffsetLen    = 2
+	// within a KV pair
+	keyLenOffset   = 0
+	keyLenLen      = 2
+	valueLenOffset = 2
+	valueLenLen    = 2
+)
+
+func (node BTreeNode) getData() []byte {
+	return getSlice(node, dataOffset, node.getSize())
+}
+
+func (node BTreeNode) getChildPtr(idx uint16) uint64 {
 	node.checkType(internal)
 	node.checkIdx(idx)
-	data := node[dataStart:]
-	return binary.LittleEndian.Uint64(data[idx*childPointerLen:])
+
+	return binary.LittleEndian.Uint64(getSlice(node.getData(), idx*childPtrLen, childPtrLen))
+}
+
+// TODO: Check data out of 4 KB limitation.
+func (node BTreeNode) setChildPtr(idx uint16, ptr uint64) {
+	node.checkType(internal)
+	count := node.getCount()
+
+	if idx > count {
+		panicOutOfBound(idx, count)
+	} else if idx == count {
+		node.setCount(count + 1)
+		count++
+		node.setSize(node.getSize() + childPtrLen)
+	}
+	binary.LittleEndian.PutUint64(getSlice(node.getData(), idx*childPtrLen, childPtrLen))
 }
 
 func (node BTreeNode) getKV(idx uint16) ([]byte, []byte) {
-	node.checkType(internal)
+	node.checkType(leaf)
 	node.checkIdx(idx)
 
 	count := node.getCount()
-	metadata := node[metadataOffset:][:kvOffsetLen*count]
-	kvOffset := binary.LittleEndian.Uint16(metadata[idx*kvOffsetLen:][:kvOffsetLen])
-	data := node[metadataOffset+len(metadata):]
-	keyLen := binary.LittleEndian.Uint16(data[kvOffset:][:kvKeyLen])
-	valueLen := binary.LittleEndian.Uint16(data[kvOffset+keyLen:][:kvValueLen])
-	key := data[kvDataOffset:][:keyLen]
-	value := data[kvOffset+keyLen:][:valueLen]
-	return key, value
-}
+	data := node.getData()
 
+	kvOffsets := data[:count*kvOffsetLen]
+	kvOffset := binary.LittleEndian.Uint16(getSlice(kvOffsets, idx*kvOffsetLen, kvOffsetLen))
+
+	kvPairs := data[count*kvOffsetLen:]
+	kvPair := kvPairs[kvOffset:]
+
+	keyLen := binary.LittleEndian.Uint16(getSlice(kvPair, keyLenOffset, keyLenLen))
+	valueLen := binary.LittleEndian.Uint16(getSlice(kvPair, valueLenOffset, valueLenLen))
+
+	return getSlice(kvPair, keyLenLen+valueLenLen, keyLen), getSlice(kvPair, keyLenLen+valueLenLen+keyLen, valueLen)
+}
