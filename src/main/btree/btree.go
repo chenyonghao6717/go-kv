@@ -130,6 +130,7 @@ const (
 	keyLenLen      = 2
 	valueLenOffset = 2
 	valueLenLen    = 2
+	keyOffset      = 4
 )
 
 func (node BTreeNode) getData() []byte {
@@ -173,6 +174,8 @@ func (node BTreeNode) getKV(idx uint16) ([]byte, []byte) {
 
 	keyLen := binary.LittleEndian.Uint16(getSlice(kvPair, keyLenOffset, keyLenLen))
 	valueLen := binary.LittleEndian.Uint16(getSlice(kvPair, valueLenOffset, valueLenLen))
+	kvPair = getSlice(kvPair, 0, keyLenLen+valueLenLen+keyLen+valueLen)
 
-	return getSlice(kvPair, keyLenLen+valueLenLen, keyLen), getSlice(kvPair, keyLenLen+valueLenLen+keyLen, valueLen)
+	return getSlice(kvPair, keyOffset, keyLen), getSlice(kvPair, keyOffset+keyLen, valueLen)
 }
+
