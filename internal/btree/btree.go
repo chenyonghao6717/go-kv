@@ -8,7 +8,11 @@ import (
 /*
 The B+tree structure of LSM-tree.
 Treat nodes of BTrees as binary to simplify loads and dumps with disks.
-Assign 4 KB space for each node.
+Assign fixed 4 KB space for each node. (The same as a disk page)
+Each internal node has at least 1 child pointer. Say an internal node has 3 child pointers,
+[a, b, c], it has 4 subranges: (-inf, a), [a, b), [b, c), [c, inf). If the parent range of
+this node is [e, f), then the 1st and last subrange can be converted into [e, a) and [c, f)
+
 
 An internal node layout:
 |             header            |          data           |
