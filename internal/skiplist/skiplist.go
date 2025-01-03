@@ -12,14 +12,14 @@ Using 0-1 random numbers to determine whether a node needs to be lifted.
 */
 
 const (
-	maxHeight       = uint8(16)
+	maxHeight = uint8(16)
 )
 
 /*
 This function returns the overall layer number that a node can be lifted to.
 It ranges from 1 to maxHeight(both inclusively).
 A node at each layer has 1/2 of possibility to be lifted to the upper layer.
-So a node has (1/2) ^ 16 of possibility to be lifted to the uppermost layer.
+So a node has (1/2) ^ 15 of possibility to be lifted to the uppermost layer.
 */
 func liftLayers() uint8 {
 	layer := uint8(1)
@@ -84,13 +84,16 @@ func initBound(initNode *node) []*node {
 }
 
 func narrowDownBound(head *node, tail *node, leftBound *node, rightBound *node, key string, layer uint8) (*node, *node) {
-	for leftBound != rightBound {
-		if (leftBound == head || leftBound.key <= key) && (rightBound == tail || rightBound.key >= key) {
+	cur := leftBound
+	next := cur.nexts[layer]
+	for next != rightBound {
+		if (cur == head || cur.key <= key) && (next == tail || next.key >= key) {
 			break
 		}
-		leftBound = leftBound.nexts[layer]
+		cur = next
+		next = next.nexts[layer]
 	}
-	return leftBound, rightBound
+	return cur, next
 }
 
 /*
@@ -105,7 +108,7 @@ func (st *skipList) searchBounds(key string) ([]*node, []*node) {
 	leftBounds := initBound(st.head)
 	rightBounds := initBound(st.tail)
 
-	if st.IsEmpty() {
+	if st.size == uint64(0) {
 		return leftBounds, rightBounds
 	}
 
@@ -138,7 +141,6 @@ func (st *skipList) searchWithBounds(key string, leftBounds []*node, rightBounds
 		return rightBounds[0]
 	}
 	return nil
-
 }
 
 func (st *skipList) search(key string) *node {
@@ -176,6 +178,7 @@ func (st *skipList) update(key string, val interface{}) {
 		leftBounds[i].nexts[i] = node
 		node.nexts[i] = rightBounds[i]
 	}
+	st.size += 1
 }
 
 func (st *skipList) Insert(key string, val interface{}) {
