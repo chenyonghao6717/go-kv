@@ -169,6 +169,10 @@ func (st *skipList) update(key string, val interface{}) {
 	leftBounds, rightBounds := st.searchBounds(key)
 	node := st.searchWithBounds(key, leftBounds, rightBounds)
 	if node != nil {
+		// marked as deleted
+		if node.val == nil {
+			st.size += 1
+		}
 		node.val = val
 		return
 	}
@@ -224,4 +228,5 @@ func (st *skipList) Delete(key string) {
 		return
 	}
 	node.val = nil
+	st.size -= 1
 }
