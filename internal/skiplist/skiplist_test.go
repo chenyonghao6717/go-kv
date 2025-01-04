@@ -78,13 +78,7 @@ func TestConcurrentDelete(t *testing.T) {
 	keys := test.RandStrs(testTimes, testTimes)
 	vals := test.RandStrs(testTimes, testTimes)
 
-	var wgInsert sync.WaitGroup
-	wgInsert.Add(concurrrency_num)
-
-	for i := 0; i < concurrrency_num; i++ {
-		go insert(st, keys, vals, &wgInsert)
-	}
-	wgInsert.Wait()
+	insert(st, keys, vals, nil)
 
 	var wgDelete sync.WaitGroup
 	wgDelete.Add(concurrrency_num)
@@ -92,7 +86,7 @@ func TestConcurrentDelete(t *testing.T) {
 		go delete(st, keys, &wgDelete)
 	}
 	wgDelete.Wait()
-	
+
 	for _, key := range keys {
 		assert.Nil(t, st.Search(key))
 	}
