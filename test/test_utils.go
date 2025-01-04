@@ -19,9 +19,13 @@ func RandStr(len_ int) string {
 }
 
 func RandStrs(len_ int, num int) []string {
-	strs := make([]string, num)
-	for i := 0; i < num; i++ {
-		strs[i] = RandStr(len_)
+	strs_set := make(map[string]bool)
+	for len(strs_set) < num {
+		strs_set[RandStr(len_)] = true
+	}
+	strs := make([]string, 0, num)
+	for key := range strs_set {
+		strs = append(strs, key)
 	}
 	return strs
 }
