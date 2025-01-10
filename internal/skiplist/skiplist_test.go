@@ -2,7 +2,6 @@ package skiplist
 
 import (
 	"kv/test"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -33,62 +32,19 @@ func TestNewSkipList(t *testing.T) {
 	assert.True(t, st.IsEmpty())
 }
 
-func insert(st *skipList, keys []string, vals []string, wg *sync.WaitGroup) {
-	if wg != nil {
-		defer wg.Done()
-	}
-	for i, key := range keys {
-		st.Insert(key, vals[i])
-	}
-}
-
-func delete(st *skipList, keys []string, wg *sync.WaitGroup) {
-	if wg != nil {
-		defer wg.Done()
-	}
-	for _, key := range keys {
-		st.Delete(key)
-	}
-}
-
-func TestConcurrentInsert(t *testing.T) {
+func TestUpdateAndGet(t *testing.T) {
 	st := NewSkipList()
-	testTimes := 1_000
-	concurrrency_num := 10
-	keys := test.RandStrs(testTimes, testTimes)
-	vals := test.RandStrs(testTimes, testTimes)
-
-	var wg sync.WaitGroup
-	wg.Add(concurrrency_num)
-
-	for i := 0; i < concurrrency_num; i++ {
-		go insert(st, keys, vals, &wg)
+	strs := test.RandStrs(1000, 100)
+	for _, str := range strs {
+		st.Update(str, []byte(str))
 	}
-	wg.Wait()
-
-	for i, key := range keys {
-		assert.Equal(t, vals[i], st.Search(key))
+	for _, str := range strs {
+		assert.Equal(t, str, string(st.Get(str).val))
 	}
-}
-
-func TestConcurrentDelete(t *testing.T) {
-	st := NewSkipList()
-	testTimes := 1_000
-	concurrrency_num := 10
-	keys := test.RandStrs(testTimes, testTimes)
-	vals := test.RandStrs(testTimes, testTimes)
-
-	insert(st, keys, vals, nil)
-
-	var wgDelete sync.WaitGroup
-	wgDelete.Add(concurrrency_num)
-	for i := 0; i < concurrrency_num; i++ {
-		go delete(st, keys, &wgDelete)
+	for _, str := range strs {
+		st.Update(str, nil)
 	}
-	wgDelete.Wait()
-
-	for _, key := range keys {
-		assert.Nil(t, st.Search(key))
+	for _, str := range strs {
+		assert.Nil(t, st.Get(str).val)
 	}
-	assert.Zero(t, st.GetSize())
 }
